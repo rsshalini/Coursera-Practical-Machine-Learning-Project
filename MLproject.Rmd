@@ -1,0 +1,138 @@
+---
+title:  "Practical Machine Learning Coursera Project"
+author: "Shalini Ruppa Subramanian"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+# Synopsis
+This project is about predicting how correctly a weight lifting exercise is done and grading it as Classes A-E. Class A means the exercise is done to specification and Classes B-E means they fall under common mistakes of doing the exercise. With the activities of 6 participants, the trainer had graded the weight lifting exercises into the different classes. We will build a prediction model using the training dataset collected and use it to predict the classes for a test data with maximum accuracy. The data for the project comes from <http://groupware.les.inf.puc-rio.br/har>.
+
+# Dataset
+The [training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [test](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) data are downloaded from the links. 
+
+```{r download_data, cache=TRUE}
+setwd("~/Coursera/MachineLearning") #setting working directory
+if(!file.exists("./training.csv")){
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                destfile = "training",method = "curl")}
+if(!file.exists("./testing.csv")){
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              destfile = "testing",method = "curl")}
+```
+
+# Data Processing
+The dimensions of the training and test data are obtained. The `classe` variable defines the class of the training data set. `classe` variable is not in the testing data and it will be predicted by the prediction model we build.
+```{r reading_data}
+#reading the files
+training <- read.csv('training')
+testing <- read.csv('testing')
+dim(training) 
+summary(training$classe)
+dim(testing) 
+```
+We will slice the training data with 80% allocated to training data set and 20% as testing data set to be able to test the model on the test set to determine accuracy.
+```{r partition_data}
+set.seed(123)
+library(caret)
+inTrain <- createDataPartition(y=training$classe, p=0.8, list=FALSE)
+training1a <- training[inTrain, ]
+testing1a <- training[-inTrain, ]
+```
+We have 160 variables in the training data set and we need to process the data. One way of processing is finding the near zero variables and to exclude them.
+```{r nzv_data}
+DataNZV <- nearZeroVar(training1a,saveMetrics=TRUE)  #calculating nzv's in training data frame
+colNZV <- which(DataNZV$nzv==TRUE) # getting the column indices where nzv=TRUE
+training1b <- training1a[-c(colNZV,1)]  #160 to 100 variables now
+```
+Now, we have reduced from 160 to 100 variables. We observe that there are a lot of NA's in the dataset. Hence, we remove the column variables when there are missing values more than 50% in each column. This results in 58 variables from 100 variables.
+```{r remove_na}
+# removing variables in the training1b data if it has more than 50% NA's.
+training1c <- training1b
+for(i in 1:length(training1b)) {
+  if(sum(is.na(training1b[,i] ) ) /nrow(training1b) >= 0.5){
+    for(j in 1:length(training1c)) {
+      if(length( grep(names(training1b[i]), names(training1c)[j]) ) ==1){
+        training1c <- training1c[ , -j]
+      }
+    }
+  }
+}
+training1a <- training1c
+rm(training1c)
+dim(training1a)
+```
+Similarly, we will truncate the variables we have removed in the training data set to the testing1a dataset and testing (actual data to be predicted) data.
+```{r trim_testdata}
+testing1a <- testing1a[colnames(training1a)] #testing data set created from training dataset for validation
+testing <- testing[colnames(training1a[, -58])]
+```
+
+# Model Building
+We have process our intiial datasets to exclude predictors with missing values and are near zero variables. We fit a basic tree model using the `rpart` function.
+```{r model1}
+library(rpart)
+modFit1 <- rpart(classe~.,data = training1a, method="class")
+predictions1 <- predict(modFit1,testing1a, type="class") #prediction
+confusionMatrix(predictions1, testing1a$classe) 
+```
+The above model gives about **87% accuracy**. We will try to fit another preidction model using `randomForest` alogrithm.
+```{r model2}
+library(randomForest)
+modFit2 <- randomForest(classe~., data = training1a)
+predictions2 <- predict(modFit2,testing1a, type="class")
+confusionMatrix(predictions2, testing1a$classe) 
+```
+The randomForest model gives a **99.9% accuracy**.
+
+Before getting our predictions on the `testing` dataset, we have to ensure the classes of the variables in the `training1a` dataset matches with the `testing` dataset. 
+```{r same_class}
+for (i in 1:length(testing) ) {
+  for(j in 1:length(training1a)) {
+    if( length( grep(names(training1a[i]), names(testing)[j]) ) ==1)  {
+      class(testing[j]) <- class(training1a[i])
+    }      
+  }      
+}
+```
+
+# Sample error
+Th sample errors are calculated below.
+```{r error}
+cm <- confusionMatrix(predictions2, testing1a$classe)
+overall.accuracy <- (cm$overall)['Accuracy']
+InSample_Error <- round((1-overall.accuracy)*100,2)
+OOS_Error <- round(((1 - sum(predictions2 == testing1a$classe)/length(predictions2)) *100), digits=2)
+```
+The in sample error rate is `r InSample_Error`% and out of sample error is `r OOS_Error`%.
+
+# Solution
+We will find the predicted values of the `classe` variable on the `testing` dataset. The below code produces the predicted variables in 20 text files so that it can be submitted. 
+```{r predicted_class, eval=FALSE}
+predictions3 <- predict(modFit2,testing, type="class")
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predictions3)
+predictions3
+```
+The predictions on the classe variable for the testing data are also listed.
+
+# Conclusion
+It can be osberved from the above analysis that `randomForest` method produces a prediction model with greater accuracy than the classification tree model. 
+
+
+
+
+
+
+
+
+
+
+
+
